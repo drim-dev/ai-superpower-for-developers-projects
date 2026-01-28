@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Weather Agent</title>
+    <title>Погодный Агент</title>
     <style>
         * {
             box-sizing: border-box;
@@ -189,24 +189,24 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Weather Agent</h1>
-            <p>Ask me about weather anywhere in the world</p>
+            <h1>Погодный Агент</h1>
+            <p>Спросите меня о погоде в любой точке мира</p>
         </div>
 
         <div class="session-controls">
-            <span id="session-info">No active session</span>
-            <button onclick="endSession()" id="end-btn" style="display: none;">End Session</button>
+            <span id="session-info">Нет активной сессии</span>
+            <button onclick="endSession()" id="end-btn" style="display: none;">Завершить</button>
         </div>
 
         <div class="messages" id="messages">
             <div class="message system">
-                Click "Start" or send a message to begin a new session
+                Отправьте сообщение, чтобы начать новую сессию
             </div>
         </div>
 
         <div class="input-area">
-            <input type="text" id="user-input" placeholder="Ask about weather..." onkeypress="handleKeyPress(event)">
-            <button onclick="sendMessage()" id="send-btn">Send</button>
+            <input type="text" id="user-input" placeholder="Спросите о погоде..." onkeypress="handleKeyPress(event)">
+            <button onclick="sendMessage()" id="send-btn">Отправить</button>
         </div>
     </div>
 
@@ -217,7 +217,7 @@
             const response = await fetch('/api/sessions', { method: 'POST' });
             const data = await response.json();
             sessionId = data.session_id;
-            document.getElementById('session-info').textContent = `Session #${sessionId}`;
+            document.getElementById('session-info').textContent = `Сессия #${sessionId}`;
             document.getElementById('end-btn').style.display = 'inline-block';
             document.getElementById('messages').innerHTML = '';
         }
@@ -226,9 +226,9 @@
             if (!sessionId) return;
 
             await fetch(`/api/sessions/${sessionId}/end`, { method: 'POST' });
-            addMessage('Session ended', 'system');
+            addMessage('Сессия завершена', 'system');
             sessionId = null;
-            document.getElementById('session-info').textContent = 'No active session';
+            document.getElementById('session-info').textContent = 'Нет активной сессии';
             document.getElementById('end-btn').style.display = 'none';
         }
 
@@ -286,11 +286,11 @@
                     addMessage(data.assistant_message.content, 'assistant');
                 } else {
                     const error = await response.json();
-                    addMessage(`Error: ${error.detail}`, 'system');
+                    addMessage(`Ошибка: ${error.detail}`, 'system');
                 }
             } catch (err) {
                 hideTyping();
-                addMessage(`Error: ${err.message}`, 'system');
+                addMessage(`Ошибка: ${err.message}`, 'system');
             }
 
             sendBtn.disabled = false;
