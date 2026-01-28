@@ -1,45 +1,23 @@
-"""Manual tools protocol implementation.
+"""Naive ad-hoc tools protocol implementation.
 
-This module implements a simple tools protocol by:
-1. Defining available tools and their schemas
-2. Parsing tool calls from LLM text responses
-3. Executing tools and returning results
+This module demonstrates a simple but fragile approach to tool calling
+by parsing ad-hoc string patterns from LLM responses.
+
+Format:
+  [ПОГОДА: city_name]
+  [ПРОГНОЗ: city_name, days]
+
+This approach is educational - it shows why structured protocols exist.
+Problems with this naive approach:
+1. LLM may format strings inconsistently
+2. Parsing is fragile (special characters, typos break it)
+3. No validation of parameters
+4. Hard to extend with new tools
 """
 
-import json
 import re
 from dataclasses import dataclass
 from app import weather
-
-
-# Tool definitions - these describe what tools are available to the LLM
-TOOLS = {
-    "get_current_weather": {
-        "description": "Get the current weather conditions for a specific location",
-        "parameters": {
-            "location": {
-                "type": "string",
-                "description": "The city name, e.g., 'London', 'New York', 'Tokyo'",
-                "required": True,
-            }
-        },
-    },
-    "get_weather_forecast": {
-        "description": "Get a weather forecast for a specific location",
-        "parameters": {
-            "location": {
-                "type": "string",
-                "description": "The city name, e.g., 'London', 'New York', 'Tokyo'",
-                "required": True,
-            },
-            "days": {
-                "type": "integer",
-                "description": "Number of days to forecast (1-7, default 3)",
-                "required": False,
-            },
-        },
-    },
-}
 
 
 @dataclass
@@ -58,57 +36,65 @@ class ToolResult:
 
 def get_tools_prompt() -> str:
     """Generate the tools description for the system prompt."""
-    lines = ["## Available Tools", ""]
+    return """## Доступные команды
 
-    for name, tool in TOOLS.items():
-        lines.append(f"### {name}")
-        lines.append(f"{tool['description']}")
-        lines.append("")
-        lines.append("Parameters:")
+Чтобы получить данные о погоде, используй специальные команды в квадратных скобках:
 
-        for param_name, param_info in tool["parameters"].items():
-            required = "(required)" if param_info.get("required") else "(optional)"
-            lines.append(f"  - {param_name}: {param_info['type']} {required}")
-            lines.append(f"    {param_info['description']}")
+### Текущая погода
+[ПОГОДА: название_города]
 
-        lines.append("")
+Примеры:
+[ПОГОДА: Москва]
+[ПОГОДА: New York]
+[ПОГОДА: Токио]
 
-    return "\n".join(lines)
+### Прогноз погоды
+[ПРОГНОЗ: название_города, количество_дней]
+
+Примеры:
+[ПРОГНОЗ: Париж, 3]
+[ПРОГНОЗ: London, 7]
+[ПРОГНОЗ: Берлин, 5]
+
+Если количество дней не указано, будет показан прогноз на 3 дня."""
 
 
 def parse_tool_calls(response_text: str) -> list[ToolCall]:
-    """Parse tool calls from LLM response text.
+    """Parse tool calls from LLM response using ad-hoc string patterns.
 
-    Looks for tool calls in the format:
-    <tool_call>
-    {"name": "tool_name", "arguments": {"arg1": "value1"}}
-    </tool_call>
+    This naive approach uses simple regex to find patterns like:
+    [ПОГОДА: Moscow]
+    [ПРОГНОЗ: Paris, 5]
     """
     tool_calls = []
 
-    # Pattern to match tool_call blocks
-    pattern = r'<tool_call>\s*(.*?)\s*</tool_call>'
-    matches = re.findall(pattern, response_text, re.DOTALL)
+    # Pattern for current weather: [ПОГОДА: city]
+    weather_pattern = r'\[ПОГОДА:\s*([^\]]+)\]'
+    for match in re.finditer(weather_pattern, response_text, re.IGNORECASE):
+        location = match.group(1).strip()
+        tool_calls.append(ToolCall(
+            name="get_current_weather",
+            arguments={"location": location}
+        ))
 
-    for match in matches:
-        try:
-            data = json.loads(match.strip())
-            if "name" in data:
-                tool_calls.append(ToolCall(
-                    name=data["name"],
-                    arguments=data.get("arguments", {})
-                ))
-        except json.JSONDecodeError:
-            # Skip malformed tool calls
-            continue
+    # Pattern for forecast: [ПРОГНОЗ: city, days] or [ПРОГНОЗ: city]
+    forecast_pattern = r'\[ПРОГНОЗ:\s*([^\],]+)(?:,\s*(\d+))?\]'
+    for match in re.finditer(forecast_pattern, response_text, re.IGNORECASE):
+        location = match.group(1).strip()
+        days_str = match.group(2)
+        days = int(days_str) if days_str else 3
+        tool_calls.append(ToolCall(
+            name="get_weather_forecast",
+            arguments={"location": location, "days": days}
+        ))
 
     return tool_calls
 
 
 def extract_text_before_tool_calls(response_text: str) -> str:
     """Extract any text that appears before tool calls."""
-    # Find the first tool_call tag
-    match = re.search(r'<tool_call>', response_text)
+    # Find the first bracket command
+    match = re.search(r'\[(ПОГОДА|ПРОГНОЗ):', response_text, re.IGNORECASE)
     if match:
         return response_text[:match.start()].strip()
     return response_text.strip()
@@ -116,7 +102,7 @@ def extract_text_before_tool_calls(response_text: str) -> str:
 
 def has_tool_calls(response_text: str) -> bool:
     """Check if the response contains any tool calls."""
-    return '<tool_call>' in response_text
+    return bool(re.search(r'\[(ПОГОДА|ПРОГНОЗ):', response_text, re.IGNORECASE))
 
 
 async def execute_tool(tool_call: ToolCall) -> ToolResult:
@@ -152,12 +138,23 @@ async def execute_tool_calls(tool_calls: list[ToolCall]) -> list[ToolResult]:
 
 
 def format_tool_results(results: list[ToolResult]) -> str:
-    """Format tool results as a message to send back to the LLM."""
-    lines = ["Tool results:"]
+    """Format tool results as plain text for the LLM."""
+    lines = ["Результаты запросов:"]
 
     for result in results:
-        lines.append(f"\n<tool_result name=\"{result.tool_name}\">")
-        lines.append(json.dumps(result.result, indent=2))
-        lines.append("</tool_result>")
+        data = result.result
+        if "error" in data:
+            lines.append(f"\nОшибка: {data['error']}")
+        elif result.tool_name == "get_current_weather":
+            lines.append(f"\nТекущая погода в {data.get('location', 'неизвестно')}:")
+            lines.append(f"  Температура: {data.get('temperature_celsius')}°C")
+            lines.append(f"  Ощущается как: {data.get('feels_like_celsius')}°C")
+            lines.append(f"  Влажность: {data.get('humidity_percent')}%")
+            lines.append(f"  Ветер: {data.get('wind_speed_kmh')} км/ч")
+            lines.append(f"  Условия: {data.get('conditions')}")
+        elif result.tool_name == "get_weather_forecast":
+            lines.append(f"\nПрогноз погоды для {data.get('location', 'неизвестно')}:")
+            for day in data.get("forecast", []):
+                lines.append(f"  {day['date']}: {day['low_celsius']}°C - {day['high_celsius']}°C, {day['conditions']}, осадки: {day['precipitation_chance_percent']}%")
 
     return "\n".join(lines)
