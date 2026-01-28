@@ -41,6 +41,18 @@ OPENAI_API_KEY=ваш-ключ-api
 OPENAI_MODEL=gpt-4o-mini
 ```
 
+## Поддерживаемые модели
+
+Приложение работает с любым OpenAI-совместимым API. Примеры конфигурации:
+
+| Провайдер | OPENAI_API_URL | OPENAI_MODEL |
+|-----------|----------------|--------------|
+| OpenAI | `https://api.openai.com/v1` | `gpt-5.2-2025-12-11`, `gpt-5-mini-2025-08-07`, `gpt-5-nano-2025-08-07` |
+| DeepSeek | `https://api.deepseek.com` | `deepseek-chat`, `deepseek-reasoner` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile`, `mixtral-8x7b-32768` |
+| Together | `https://api.together.xyz/v1` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
+| Ollama (локально) | `http://localhost:11434/v1` | `llama3.2`, `qwen2.5` |
+
 ## Запуск
 
 **Вариант 1: Быстрый запуск (рекомендуется)**
