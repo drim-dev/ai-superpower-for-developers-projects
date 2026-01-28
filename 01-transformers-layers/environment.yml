@@ -1,0 +1,15 @@
+name: transformers-layers-demo
+channels:
+  - conda-forge
+  - pytorch
+dependencies:
+  - python=3.11
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pip
+  - pip:
+    - transformers
+    - accelerate
+    - sentencepiece
+    - protobuf
