@@ -1,8 +1,12 @@
 """LLM integration with manual tools protocol."""
 
+import logging
 from openai import OpenAI
 from app.config import OPENAI_API_KEY, OPENAI_API_URL, OPENAI_MODEL, SYSTEM_PROMPT_PATH
 from app import tools
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Singleton client instance
 _client = None
@@ -32,12 +36,30 @@ def get_system_prompt() -> str:
 
 def _call_llm(messages: list[dict]) -> str:
     """Make a single LLM API call."""
+    # Log full context sent to LLM
+    logger.info("=" * 60)
+    logger.info(">>> FULL CONTEXT TO LLM:")
+    logger.info("=" * 60)
+    for i, msg in enumerate(messages):
+        role = msg["role"].upper()
+        content = msg["content"]
+        # Truncate system prompt for readability
+        if role == "SYSTEM" and len(content) > 200:
+            content = content[:200] + "... [truncated]"
+        logger.info(f"[{i}] {role}:\n{content}\n")
+    logger.info("=" * 60)
+
     client = get_openai_client()
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=messages,
     )
-    return response.choices[0].message.content
+    response_text = response.choices[0].message.content
+
+    # Log LLM response
+    logger.info(f"<<< FROM LLM:\n{response_text}\n")
+
+    return response_text
 
 
 async def generate_response(conversation_history: list[dict]) -> str:

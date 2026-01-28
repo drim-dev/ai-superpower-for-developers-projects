@@ -1,93 +1,180 @@
-# Weather Agent
+# Погодный Агент
 
-An AI-powered weather assistant that demonstrates how to implement a **manual tools protocol** for educational purposes. Instead of using built-in function calling APIs, this project parses tool calls directly from LLM text responses.
+ИИ-ассистент для получения информации о погоде, демонстрирующий **ручную реализацию протокола инструментов** в учебных целях. Вместо использования встроенных API для вызова функций, проект парсит вызовы инструментов напрямую из текстовых ответов LLM.
 
-## Features
+## Возможности
 
-- Current weather conditions for any city worldwide
-- Weather forecasts up to 7 days
-- Multi-turn conversations with session persistence
-- Web chat interface
+- Текущие погодные условия для любого города мира
+- Прогноз погоды до 7 дней
+- Многоходовые диалоги с сохранением сессии
+- Веб-интерфейс чата
 
-## Architecture
+## Архитектура
 
+### Агентный цикл (Agentic Loop)
+
+Агент реализует **агентный цикл** — паттерн, при котором LLM может запрашивать выполнение инструментов и получать результаты перед генерацией финального ответа.
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│                       АГЕНТНЫЙ ЦИКЛ                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Пользователь: "Какая погода в Москве?"                         │
+│           │                                                     │
+│           ▼                                                     │
+│  ┌─────────────────┐                                            │
+│  │ Собрать контекст│  [системный промпт + история диалога]      │
+│  └────────┬────────┘                                            │
+│           │                                                     │
+│           ▼                                                     │
+│  ┌─────────────────┐                                            │
+│  │   Вызвать LLM   │                                            │
+│  └────────┬────────┘                                            │
+│           │                                                     │
+│           ▼                                                     │
+│  ┌─────────────────┐     Да     ┌──────────────────┐            │
+│  │ Есть вызов      │──────────▶ │ Распарсить вызов │            │
+│  │ инструмента?    │            │ Извлечь: Москва  │            │
+│  │ [ПОГОДА: ...]?  │            └────────┬─────────┘            │
+│  └────────┬────────┘                     │                      │
+│           │ Нет                          ▼                      │
+│           │                     ┌──────────────────┐            │
+│           │                     │Выполнить инстр-т │            │
+│           │                     │  (Weather API)   │            │
+│           │                     └────────┬─────────┘            │
+│           │                              │                      │
+│           │                              ▼                      │
+│           │                     ┌──────────────────┐            │
+│           │                     │Форматировать рез.│            │
+│           │                     │Добавить в контекст            │
+│           │                     └────────┬─────────┘            │
+│           │                              │                      │
+│           │              ┌───────────────┘                      │
+│           │              │ (вернуться в цикл)                   │
+│           │              ▼                                      │
+│           │      ┌─────────────────┐                            │
+│           │      │   Вызвать LLM   │                            │
+│           │      └────────┬────────┘                            │
+│           │               │                                     │
+│           ▼               ▼                                     │
+│  ┌─────────────────────────────────────┐                        │
+│  │       Вернуть финальный ответ       │                        │
+│  │  "В Москве сейчас -5°C, ясно..."    │                        │
+│  └─────────────────────────────────────┘                        │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
-User Query → LLM → Parse <tool_call> tags → Execute weather API → Return results → LLM → Final response
+
+### Рост контекста в цикле
+
+Каждая итерация добавляет сообщения в контекст:
+
+```text
+Итерация 1:
+  [0] SYSTEM: Ты — погодный ассистент...
+  [1] USER: Какая погода в Москве?
+
+  LLM отвечает: [ПОГОДА: Moscow]
+
+Итерация 2:
+  [0] SYSTEM: Ты — погодный ассистент...
+  [1] USER: Какая погода в Москве?
+  [2] ASSISTANT: [ПОГОДА: Moscow]
+  [3] USER: Результаты запросов:
+            Температура: -5°C, Ясно...
+
+  LLM отвечает: В Москве сейчас морозно... (нет вызова = конец)
 ```
 
-### Manual Tools Protocol
+### Наивный протокол инструментов
 
-The core educational component is in `app/tools.py`. It works by:
+Проект использует **наивный ad-hoc подход** в учебных целях, демонстрируя, почему существуют структурированные протоколы.
 
-1. **Defining tools** as structured data (name, description, parameters)
-2. **Injecting tool definitions** into the system prompt
-3. **Instructing the LLM** to output tool calls in a specific format:
-   ```
-   <tool_call>
-   {"name": "get_current_weather", "arguments": {"location": "London"}}
-   </tool_call>
-   ```
-4. **Parsing responses** with regex to extract tool calls
-5. **Executing tools** and formatting results as `<tool_result>` blocks
-6. **Looping** until the LLM responds without tool calls
+**Формат:**
 
-### Project Structure
-
+```text
+[ПОГОДА: город]           → получить текущую погоду
+[ПРОГНОЗ: город, дни]     → получить прогноз
 ```
+
+**Реализация** (`app/tools.py`):
+
+1. Системный промпт описывает доступные команды
+2. LLM выводит команды в квадратных скобках
+3. Regex парсит команды из текста ответа
+4. Инструменты выполняются и возвращают результаты
+5. Результаты отправляются обратно LLM как следующее сообщение
+6. Цикл продолжается, пока в ответе есть команды
+
+**Проблемы наивного подхода:**
+
+- LLM может форматировать команды непоследовательно
+- LLM может галлюцинировать данные вместо вызова инструментов
+- Парсинг ломается на граничных случаях (спецсимволы, опечатки)
+- Нет валидации параметров
+- Сложно расширять новыми инструментами
+
+### Структура проекта
+
+```text
 04-weather-agent/
 ├── app/
-│   ├── config.py      # Environment configuration
-│   ├── database.py    # SQLite session/message storage
-│   ├── models.py      # Pydantic request/response models
-│   ├── routes.py      # FastAPI API endpoints
-│   ├── services.py    # LLM integration with agentic loop
-│   ├── tools.py       # Manual tools protocol implementation
-│   └── weather.py     # Open-Meteo API integration
+│   ├── config.py      # Конфигурация окружения
+│   ├── database.py    # Хранение сессий/сообщений в SQLite
+│   ├── models.py      # Pydantic модели запросов/ответов
+│   ├── routes.py      # API эндпоинты FastAPI
+│   ├── services.py    # Интеграция с LLM и агентный цикл
+│   ├── tools.py       # Реализация протокола инструментов
+│   └── weather.py     # Интеграция с Open-Meteo API
 ├── static/
-│   └── index.html     # Web chat interface
-├── main.py            # FastAPI application entry point
-├── system_prompt.txt  # Agent personality and tool instructions
-└── pyproject.toml     # Project dependencies
+│   └── index.html     # Веб-интерфейс чата
+├── main.py            # Точка входа FastAPI
+├── system_prompt.txt  # Промпт агента и инструкции по инструментам
+└── pyproject.toml     # Зависимости проекта
 ```
 
-## Setup
+## Установка
 
-1. Install dependencies:
+1. Установить зависимости:
+
    ```bash
    uv sync
    ```
 
-2. Configure environment variables in `.env`:
-   ```
+2. Настроить переменные окружения в `.env`:
+
+   ```text
    OPENAI_API_KEY=your-api-key
-   OPENAI_API_URL=https://api.openai.com/v1  # or other compatible API
+   OPENAI_API_URL=https://api.openai.com/v1  # или другой совместимый API
    OPENAI_MODEL=gpt-4o-mini
    ```
 
-3. Run the server:
+3. Запустить сервер:
+
    ```bash
    uv run python main.py
    ```
 
-4. Open http://localhost:8000
+4. Открыть <http://localhost:8000>
 
-## API Endpoints
+## API эндпоинты
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/sessions` | POST | Create new session |
-| `/api/sessions/{id}/messages` | POST | Send message, get response |
-| `/api/sessions/{id}/end` | POST | End session |
-| `/api/sessions` | GET | List all sessions |
-| `/api/sessions/{id}` | GET | Get session details |
+| Эндпоинт                       | Метод | Описание                    |
+| ------------------------------ | ----- | --------------------------- |
+| `/api/sessions`                | POST  | Создать новую сессию        |
+| `/api/sessions/{id}/messages`  | POST  | Отправить сообщение         |
+| `/api/sessions/{id}/end`       | POST  | Завершить сессию            |
+| `/api/sessions`                | GET   | Список всех сессий          |
+| `/api/sessions/{id}`           | GET   | Детали сессии               |
 
-## Example Queries
+## Примеры запросов
 
-- "What's the weather in Tokyo?"
-- "Give me a 5-day forecast for Paris"
-- "Is it raining in London right now?"
-- "Compare weather in New York and Los Angeles"
+- "Какая погода в Токио?"
+- "Дай прогноз на 5 дней для Парижа"
+- "Сейчас идёт дождь в Лондоне?"
+- "Сравни погоду в Нью-Йорке и Лос-Анджелесе"
 
 ## Weather API
 
-Uses [Open-Meteo](https://open-meteo.com/) - a free weather API that requires no API key.
+Используется [Open-Meteo](https://open-meteo.com/) — бесплатный API погоды, не требующий ключа.

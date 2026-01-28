@@ -15,9 +15,12 @@ Problems with this naive approach:
 4. Hard to extend with new tools
 """
 
+import logging
 import re
 from dataclasses import dataclass
 from app import weather
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -88,6 +91,11 @@ def parse_tool_calls(response_text: str) -> list[ToolCall]:
             arguments={"location": location, "days": days}
         ))
 
+    if tool_calls:
+        logger.info(f"[TOOLS] Parsed {len(tool_calls)} tool call(s):")
+        for tc in tool_calls:
+            logger.info(f"[TOOLS]   {tc.name}({tc.arguments})")
+
     return tool_calls
 
 
@@ -109,19 +117,26 @@ async def execute_tool(tool_call: ToolCall) -> ToolResult:
     """Execute a tool call and return the result."""
     tool_name = tool_call.name
     args = tool_call.arguments
+    logger.info(f"[TOOLS] Executing: {tool_name}({args})")
 
     if tool_name == "get_current_weather":
         location = args.get("location", "")
         result = await weather.get_current_weather(location)
+        logger.info(f"[TOOLS] Result: {result}")
         return ToolResult(tool_name=tool_name, result=result)
 
     elif tool_name == "get_weather_forecast":
         location = args.get("location", "")
         days = args.get("days", 3)
         result = await weather.get_weather_forecast(location, days)
+        forecast = result.get("forecast", [])
+        logger.info(f"[TOOLS] Result: {len(forecast)} days forecast for {result.get('location', 'unknown')}")
+        for day in forecast:
+            logger.info(f"[TOOLS]   {day['date']}: {day['low_celsius']}°C - {day['high_celsius']}°C, {day['conditions']}")
         return ToolResult(tool_name=tool_name, result=result)
 
     else:
+        logger.warning(f"[TOOLS] Unknown tool: {tool_name}")
         return ToolResult(
             tool_name=tool_name,
             result={"error": f"Unknown tool: {tool_name}"}
