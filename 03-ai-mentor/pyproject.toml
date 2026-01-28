@@ -1,0 +1,16 @@
+[project]
+name = "ai-mentor"
+version = "1.0.0"
+description = "API for AI-powered mentoring sessions"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.6",
+    "openai>=1.60.0",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.9.2",
+    "httpx>=0.27.0,<0.29.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
