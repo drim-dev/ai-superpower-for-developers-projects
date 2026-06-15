@@ -32,28 +32,30 @@ def get_system_prompt() -> str:
     return _system_prompt
 
 
-def _log_request(messages: list[dict], tools_list: list[dict]):
-    """Log the full JSON request being sent to OpenAI API."""
-    request_data = {
-        "model": OPENAI_MODEL,
-        "messages": messages,
-        "tools": tools_list,
-    }
-    logger.info("=" * 60)
-    logger.info(">>> REQUEST TO OPENAI API:")
-    logger.info("=" * 60)
-    logger.info(json.dumps(request_data, indent=2, ensure_ascii=False))
-    logger.info("=" * 60)
+def log_conversation(messages: list[dict], iterations: int) -> None:
+    """Print the whole dialog once, after the agentic loop has finished.
 
-
-def _log_response(response):
-    """Log the full JSON response from OpenAI API."""
-    # Convert response object to dict
-    response_dict = response.model_dump()
+    One readable pass over the final context. Note how tool results carry their
+    own `tool` role and a `tool_call_id` linking them to the exact call — the
+    structured protocol, unlike the naive one, never disguises them as the user.
+    """
+    logger.info("\n" + "=" * 60)
+    logger.info(f"ИСТОРИЯ ДИАЛОГА — итераций цикла: {iterations}, сообщений: {len(messages)}")
     logger.info("=" * 60)
-    logger.info("<<< RESPONSE FROM OPENAI API:")
-    logger.info("=" * 60)
-    logger.info(json.dumps(response_dict, indent=2, ensure_ascii=False))
+    for i, msg in enumerate(messages):
+        role = msg["role"].upper()
+        if role == "SYSTEM":
+            logger.info(f"[{i}] SYSTEM: {msg['content'].splitlines()[0]} …[системный промпт]\n")
+        elif role == "ASSISTANT" and msg.get("tool_calls"):
+            calls = ", ".join(
+                f"{tc['function']['name']}({tc['function']['arguments']})"
+                for tc in msg["tool_calls"]
+            )
+            logger.info(f"[{i}] ASSISTANT → вызов инструментов: {calls}\n")
+        elif role == "TOOL":
+            logger.info(f"[{i}] TOOL (tool_call_id={msg['tool_call_id']}): {msg['content']}\n")
+        else:
+            logger.info(f"[{i}] {role}: {msg['content']}\n")
     logger.info("=" * 60)
 
 
@@ -81,29 +83,24 @@ async def generate_response(conversation_history: list[dict]) -> str:
 
     while iteration < max_iterations:
         iteration += 1
-        logger.info(f"\n{'#' * 60}\n# ITERATION {iteration}\n{'#' * 60}")
 
-        # Log the full request
-        _log_request(messages, tools_list)
-
-        # Call the LLM with tools
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=messages,
             tools=tools_list,
         )
 
-        # Log the full response
-        _log_response(response)
-
         assistant_message = response.choices[0].message
 
-        # Check if there are tool calls to process
         if not assistant_message.tool_calls:
-            # No tool calls - return the final response
+            messages.append({"role": "assistant", "content": assistant_message.content})
+            log_conversation(messages, iteration)
             return assistant_message.content
 
-        # Add assistant message with tool calls to conversation (convert to dict)
+        logger.info(
+            f"→ итерация {iteration}: модель запросила инструментов: {len(assistant_message.tool_calls)}"
+        )
+
         assistant_dict = {
             "role": "assistant",
             "content": assistant_message.content,
@@ -121,24 +118,15 @@ async def generate_response(conversation_history: list[dict]) -> str:
         }
         messages.append(assistant_dict)
 
-        # Execute each tool call and add results
         for tool_call in assistant_message.tool_calls:
             function_name = tool_call.function.name
             function_args = json.loads(tool_call.function.arguments)
-
-            logger.info(f"[TOOLS] Executing: {function_name}({json.dumps(function_args, ensure_ascii=False)})")
-
-            # Execute the tool
             result = await tools.execute_tool(function_name, function_args)
-
-            logger.info(f"[TOOLS] Result: {result}")
-
-            # Add tool result to messages
             messages.append({
                 "role": "tool",
                 "tool_call_id": tool_call.id,
                 "content": result,
             })
 
-    # Safety: if we hit max iterations, return last response
+    log_conversation(messages, iteration)
     return "Извините, но я столкнулся с проблемой при обработке вашего запроса. Пожалуйста, попробуйте снова."

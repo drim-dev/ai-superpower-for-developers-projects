@@ -36,30 +36,31 @@ def get_system_prompt() -> str:
 
 def _call_llm(messages: list[dict]) -> str:
     """Make a single LLM API call."""
-    # Log full context sent to LLM
-    logger.info("=" * 60)
-    logger.info(">>> FULL CONTEXT TO LLM:")
-    logger.info("=" * 60)
-    for i, msg in enumerate(messages):
-        role = msg["role"].upper()
-        content = msg["content"]
-        # Truncate system prompt for readability
-        if role == "SYSTEM" and len(content) > 200:
-            content = content[:200] + "... [truncated]"
-        logger.info(f"[{i}] {role}:\n{content}\n")
-    logger.info("=" * 60)
-
     client = get_openai_client()
     response = client.chat.completions.create(
         model=OPENAI_MODEL,
         messages=messages,
     )
-    response_text = response.choices[0].message.content
+    return response.choices[0].message.content
 
-    # Log LLM response
-    logger.info(f"<<< FROM LLM:\n{response_text}\n")
 
-    return response_text
+def log_conversation(messages: list[dict], iterations: int) -> None:
+    """Print the whole dialog once, after the agentic loop has finished.
+
+    One readable pass over the final context instead of dumping it on every
+    iteration. Note the tool result lives here as a `user` message — the naive
+    protocol has nowhere else to put it.
+    """
+    logger.info("\n" + "=" * 60)
+    logger.info(f"ИСТОРИЯ ДИАЛОГА — итераций цикла: {iterations}, сообщений: {len(messages)}")
+    logger.info("=" * 60)
+    for i, msg in enumerate(messages):
+        role = msg["role"].upper()
+        content = msg["content"]
+        if role == "SYSTEM":
+            content = content.splitlines()[0] + " …[системный промпт + описание инструментов]"
+        logger.info(f"[{i}] {role}:\n{content}\n")
+    logger.info("=" * 60)
 
 
 async def generate_response(conversation_history: list[dict]) -> str:
@@ -85,26 +86,23 @@ async def generate_response(conversation_history: list[dict]) -> str:
     while iteration < max_iterations:
         iteration += 1
 
-        # Call the LLM
         response_text = _call_llm(messages)
 
-        # Check for tool calls
         if not tools.has_tool_calls(response_text):
-            # No tool calls - return the final response
+            messages.append({"role": "assistant", "content": response_text})
+            log_conversation(messages, iteration)
             return response_text
 
-        # Parse and execute tool calls
         tool_calls = tools.parse_tool_calls(response_text)
         if not tool_calls:
-            # Malformed tool calls - return what we have
+            messages.append({"role": "assistant", "content": response_text})
+            log_conversation(messages, iteration)
             return tools.extract_text_before_tool_calls(response_text) or response_text
 
-        # Execute tools
         tool_results = await tools.execute_tool_calls(tool_calls)
 
-        # Add the assistant's response (with tool calls) and tool results to messages
         messages.append({"role": "assistant", "content": response_text})
         messages.append({"role": "user", "content": tools.format_tool_results(tool_results)})
 
-    # Safety: if we hit max iterations, return last response
+    log_conversation(messages, iteration)
     return "I apologize, but I encountered an issue processing your request. Please try again."
